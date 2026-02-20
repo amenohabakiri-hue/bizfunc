@@ -1,0 +1,764 @@
+Option Explicit
+
+' ==========================================
+' メイン処理（エントリポイント）
+' ==========================================
+Sub Main()
+    Dim wb As Workbook
+    Set wb = ThisWorkbook
+
+    Application.ScreenUpdating = False
+    Application.DisplayAlerts = False
+    On Error GoTo ErrorHandler
+
+    Call CreateHLRFormSheet(wb)
+    Call CreateHLRDetailSheet(wb)
+    Call SetupHLRNames(wb)     ' ← 記事方針：セル参照は「名前定義」を前提にする
+    Call ApplyHLRFormFormulas  ' ← 帳票ID/件名/本文などを数式で自動化
+    Call FillSampleData        ' ← ダミー投入（見本が最初から見える）
+
+    Application.DisplayAlerts = True
+    Application.ScreenUpdating = True
+    wb.Worksheets("HLR-01").Activate
+    RangeByName("HLR_Seq").Select
+    MsgBox "処理が正常に完了しました。", vbInformation
+    Exit Sub
+
+ErrorHandler:
+    Application.DisplayAlerts = True
+    Application.ScreenUpdating = True
+    MsgBox "エラーが発生しました: " & Err.Description, vbCritical
+End Sub
+
+' ==========================================
+' HLR-01（1枚完結）作成
+' ==========================================
+Sub CreateHLRFormSheet(wb As Workbook)
+    Dim ws As Worksheet
+    Set ws = ForceCreateSheet(wb, "HLR-01")
+
+    Dim r As Long
+    r = 1
+
+    ws.Range("A:A").ColumnWidth = 30
+    ws.Range("B:B").ColumnWidth = 72
+    ws.Range("C:C").ColumnWidth = 18
+    ws.Range("D:D").ColumnWidth = 34
+
+    ws.Cells(r, 1).Value = "報連相 統合帳票（HLR-01）  1枚完結（送信本文そのもの）"
+    ws.Cells(r, 1).Font.Bold = True
+    ws.Cells(r, 1).Font.Size = 14
+    r = r + 2
+
+    ws.Cells(r, 1).Value = "使い方：黄色のセルだけ入力 → 『送信本文（コピペ）』をそのまま貼り付け。"
+    ws.Cells(r, 1).Font.Color = RGB(120, 120, 120)
+    r = r + 2
+
+    Call PutSectionTitle(ws, r, "0) ヘッダ（固定）")
+
+    Call PutInputRow(ws, r, "帳票日付", "（自動）", True)
+    r = r + 1
+
+    Call PutInputRow(ws, r, "連番", "001 など", False)
+    r = r + 1
+
+    Call PutInputRow(ws, r, "帳票ID", "（自動）", True)
+    r = r + 1
+
+    Call PutInputRow(ws, r, "種別", "報/連/相/複合（選択）", False)
+    Call AddListValidation(ws.Range("B" & r), "報,連,相,複合")
+    r = r + 1
+
+    Call PutInputRow(ws, r, "案件ID/案件名", "例：PRJ-123 / ○○対応", False)
+    r = r + 1
+
+    Call PutInputRow(ws, r, "送信者", "例：山田", False)
+    r = r + 1
+
+    Call PutInputRow(ws, r, "一次受け手", "例：佐藤", False)
+    r = r + 1
+
+    Call PutInputRow(ws, r, "CC（二次受け手）", "例：田中, 鈴木", False)
+    r = r + 1
+
+    Call PutInputRow(ws, r, "緊急度", "Critical/High/Normal/Low（選択）", False)
+    Call AddListValidation(ws.Range("B" & r), "Critical,High,Normal,Low")
+    r = r + 1
+
+    Call PutInputRow(ws, r, "期待する返答期限", "YYYY-MM-DD HH:MM / なし", False)
+    r = r + 1
+
+    Call PutInputRow(ws, r, "送信チャネル", "Chat/Mail/口頭後追い（選択）", False)
+    Call AddListValidation(ws.Range("B" & r), "Chat,Mail,口頭後追い")
+    r = r + 1
+
+    Call PutInputRow(ws, r, "機密区分", "公開可/社内限定/要配慮（選択）", False)
+    Call AddListValidation(ws.Range("B" & r), "公開可,社内限定,要配慮（詳細は別紙）")
+    r = r + 2
+
+    Call PutSectionTitle(ws, r, "1) 1行要約（必須）")
+    Call PutInputRow(ws, r, "件名（40字以内）", "（自動生成。必要なら編集OK）", True)
+    r = r + 2
+
+    Call PutSectionTitle(ws, r, "2) 結論（Point）（必須）")
+    Call PutInputMulti(ws, r, "今の結論（1文）", "例：現状は〇〇、期限は〇〇、判断が必要/不要は〇〇。", 2)
+    r = r + 1
+
+    Call PutSectionTitle(ws, r, "3) Facts（事実）と Hypothesis（解釈）を分離（必須）")
+
+    ws.Cells(r, 1).Value = "【Facts（事実）】（検証可能なものだけ。推測語NG）"
+    ws.Cells(r, 1).Font.Bold = True
+    r = r + 1
+    Call PutInputMulti(ws, r, "F1", "", 1)
+    Call PutInputMulti(ws, r, "F2", "", 1)
+    Call PutInputMulti(ws, r, "F3", "", 1)
+    Call PutInputMulti(ws, r, "F4（任意）", "", 1)
+    Call PutInputMulti(ws, r, "F5（任意）", "", 1)
+    Call PutInputMulti(ws, r, "F6（任意）", "", 1)
+    Call PutInputMulti(ws, r, "F7（任意）", "", 1)
+    r = r + 1
+
+    ws.Cells(r, 1).Value = "【Hypothesis（解釈/仮説）】（推測語OK。ただし根拠はFacts参照）"
+    ws.Cells(r, 1).Font.Bold = True
+    r = r + 1
+    Call PutInputMulti(ws, r, "H1（根拠：F?）", "", 1)
+    Call PutInputMulti(ws, r, "H2（根拠：F?）", "", 1)
+    r = r + 1
+
+    Call PutSectionTitle(ws, r, "4) MECE（必須：空欄禁止。該当なしは『該当なし』）")
+    Call PutInputMulti(ws, r, "Status（状態）", "", 1)
+    Call PutInputMulti(ws, r, "Delta（差分）", "", 1)
+    Call PutInputMulti(ws, r, "Impact（影響）", "", 1)
+    Call PutInputMulti(ws, r, "Action（対応）", "", 1)
+    Call PutInputMulti(ws, r, "Dependency（依存）", "", 1)
+    Call PutInputMulti(ws, r, "Cause（原因：根拠必須）", "", 1)
+    r = r + 1
+
+    Call PutSectionTitle(ws, r, "5) 5W1H（必須：未確定は『未確定（確定予定：YYYY-MM-DD HH:MM）』）")
+    Call PutInputMulti(ws, r, "Who", "", 1)
+    Call PutInputMulti(ws, r, "What", "", 1)
+    Call PutInputMulti(ws, r, "When", "", 1)
+    Call PutInputMulti(ws, r, "Where", "", 1)
+    Call PutInputMulti(ws, r, "Why", "", 1)
+    Call PutInputMulti(ws, r, "How", "", 1)
+    Call PutInputMulti(ws, r, "How much（数値）", "", 1)
+    r = r + 1
+
+    Call PutSectionTitle(ws, r, "6) 割り込み判定/EQ（必須：温度はフラット固定）")
+
+    Call PutInputRow(ws, r, "割り込みの必要性", "要/不要（選択）", False)
+    Call AddListValidation(ws.Range("B" & r), "要,不要")
+    r = r + 1
+
+    Call PutInputRow(ws, r, "理由（選択式）", "期限24h以内/顧客影響/複数チーム影響/重大リスク/その他", False)
+    Call AddListValidation(ws.Range("B" & r), "期限24h以内,顧客影響,複数チーム影響,重大リスク,その他")
+    r = r + 1
+
+    Call PutInputRow(ws, r, "温度（文体）", "（自動）", True)
+    r = r + 2
+
+    Call PutSectionTitle(ws, r, "7) 種別ごとの本体（該当のみ埋める）")
+
+    ws.Cells(r, 1).Value = "【報（Report）】"
+    ws.Cells(r, 1).Font.Bold = True
+    r = r + 1
+    Call PutInputRow(ws, r, "進捗ステータス", "Not started/In progress/Blocked/Done（選択）", False)
+    Call AddListValidation(ws.Range("B" & r), "Not started,In progress,Blocked,Done")
+    r = r + 1
+    Call PutInputRow(ws, r, "進捗率", "0?100%", False)
+    r = r + 1
+    Call PutInputRow(ws, r, "完了見込み", "YYYY-MM-DD HH:MM", False)
+    r = r + 1
+    Call PutInputMulti(ws, r, "次アクション（自分）", "", 2)
+    Call PutInputMulti(ws, r, "次アクション（相手）", "", 2)
+    r = r + 1
+
+    ws.Cells(r, 1).Value = "【連（Notify）】"
+    ws.Cells(r, 1).Font.Bold = True
+    r = r + 1
+    Call PutInputMulti(ws, r, "変更点（1文）", "", 2)
+    Call PutInputMulti(ws, r, "有効範囲（対象/期間/工程）", "", 2)
+    Call PutInputMulti(ws, r, "受け手に必要な対応（箇条書き）", "", 3)
+    Call PutInputRow(ws, r, "締切", "YYYY-MM-DD HH:MM", False)
+    r = r + 1
+
+    ws.Cells(r, 1).Value = "【相（Consult）】※A/Bの2案未満なら提出不可"
+    ws.Cells(r, 1).Font.Bold = True
+    r = r + 1
+    Call PutInputMulti(ws, r, "論点（判断が必要な点）", "", 2)
+    Call PutInputRow(ws, r, "判断期限", "YYYY-MM-DD HH:MM", False)
+    r = r + 1
+
+    Call PutInputMulti(ws, r, "選択肢A（概要）", "", 2)
+    Call PutInputRow(ws, r, "選択肢A（コスト：数値）", "", False)
+    r = r + 1
+    Call PutInputRow(ws, r, "選択肢A（リスク）", "High/Med/Low（選択）", False)
+    Call AddListValidation(ws.Range("B" & r), "High,Med,Low")
+    r = r + 1
+    Call PutInputMulti(ws, r, "選択肢A（依存）", "", 1)
+    r = r + 1
+
+    Call PutInputMulti(ws, r, "選択肢B（概要）", "", 2)
+    Call PutInputRow(ws, r, "選択肢B（コスト：数値）", "", False)
+    r = r + 1
+    Call PutInputRow(ws, r, "選択肢B（リスク）", "High/Med/Low（選択）", False)
+    Call AddListValidation(ws.Range("B" & r), "High,Med,Low")
+    r = r + 1
+    Call PutInputMulti(ws, r, "選択肢B（依存）", "", 1)
+    r = r + 1
+
+    Call PutInputRow(ws, r, "推奨案", "A/B（選択）", False)
+    Call AddListValidation(ws.Range("B" & r), "A,B")
+    r = r + 1
+    Call PutInputMulti(ws, r, "推奨理由（1?2文、根拠はFacts参照）", "", 2)
+    Call PutInputRow(ws, r, "求める判断（形式）", "AでGO/BでGO/保留/その他", False)
+    r = r + 2
+
+    Call PutSectionTitle(ws, r, "8) Evidence（任意だが推奨：長いものは別紙へ）")
+    Call PutInputMulti(ws, r, "ログ/URL/ファイル名", "", 2)
+    Call PutInputMulti(ws, r, "再現手順（必要時：1?5行）", "", 3)
+
+    ws.Cells(r - 1, 4).Formula = "=HYPERLINK(""#'HLR-Detail'!A1"",""別紙（HLR-Detail）へ"")"
+    ws.Cells(r - 1, 4).Font.Color = RGB(0, 102, 204)
+    ws.Cells(r - 1, 4).Font.Underline = xlUnderlineStyleSingle
+    r = r + 2
+
+    Call PutSectionTitle(ws, r, "送信本文（コピペ）  ※ここをそのままChat/メールに貼る")
+    ws.Cells(r, 4).Value = "操作：本文セルをクリック→Ctrl+A→Ctrl+C"
+    ws.Cells(r, 4).Font.Color = RGB(120, 120, 120)
+    r = r + 1
+
+    ws.Cells(r, 1).Value = "本文（自動生成）"
+    ws.Cells(r, 1).Font.Bold = True
+
+    ws.Cells(r, 2).Value = ""
+    ws.Cells(r, 2).WrapText = True
+    ws.Cells(r, 2).Interior.Color = RGB(220, 245, 255)
+    ws.Cells(r, 2).Font.Name = "Meiryo UI"
+    ws.Cells(r, 2).Font.Size = 10
+    ws.Rows(r).RowHeight = 15 * 26
+
+    Call ApplyHLRFormatting(ws)
+
+    ws.Activate
+    ws.Range("B6").Select
+End Sub
+
+' ==========================================
+' 別紙
+' ==========================================
+Sub CreateHLRDetailSheet(wb As Workbook)
+    Dim ws As Worksheet
+    Set ws = ForceCreateSheet(wb, "HLR-Detail")
+
+    ws.Cells(1, 1).Value = "HLR-別紙（詳細/証跡退避）"
+    ws.Cells(1, 1).Font.Bold = True
+    ws.Cells(1, 1).Font.Size = 14
+
+    ws.Cells(3, 1).Value = "用途：Factsが8件以上 / 再現手順が長い / 機密要配慮の詳細をここへ退避。"
+    ws.Cells(3, 1).Font.Color = RGB(120, 120, 120)
+
+    ws.Columns(1).ColumnWidth = 26
+    ws.Columns(2).ColumnWidth = 92
+
+    ws.Cells(5, 1).Value = "帳票ID（HLR-01と一致させる）"
+    ws.Cells(5, 1).Font.Bold = True
+    ws.Cells(5, 2).Value = "HLR-YYYYMMDD-001"
+    ws.Cells(5, 2).Interior.Color = RGB(255, 255, 210)
+
+    ws.Cells(7, 1).Value = "詳細Facts（8件目以降）"
+    ws.Cells(7, 1).Font.Bold = True
+    ws.Cells(8, 1).Value = "F8:"
+    ws.Cells(9, 1).Value = "F9:"
+    ws.Cells(10, 1).Value = "F10:"
+
+    ws.Cells(12, 1).Value = "Evidence（ログ/URL/ファイル名）"
+    ws.Cells(12, 1).Font.Bold = True
+    ws.Cells(13, 1).Value = "- "
+    ws.Cells(14, 1).Value = "- "
+
+    ws.Cells(16, 1).Value = "再現手順（長文OK）"
+    ws.Cells(16, 1).Font.Bold = True
+    ws.Cells(17, 1).Value = "1) "
+    ws.Cells(18, 1).Value = "2) "
+    ws.Cells(19, 1).Value = "3) "
+
+    ws.Cells(21, 1).Value = "補足（判断ログ/議事メモなど）"
+    ws.Cells(21, 1).Font.Bold = True
+    ws.Cells(22, 1).Value = "- "
+
+    Call ApplyHLRDetailFormatting(ws)
+End Sub
+
+' ==========================================
+' 名前定義（Named Range）を作成/修復
+'  - セル位置ではなく「意味」で参照する（記事の方針）
+'  - 既存の名前が壊れていても、毎回この手続きで復旧できる
+' ==========================================
+Sub SetupHLRNames(wb As Workbook)
+    Dim ws As Worksheet
+    Set ws = wb.Worksheets("HLR-01")
+
+    ' ヘッダ系
+    Call DefineNameByLabel(wb, ws, "HLR_Date", "帳票日付")
+    Call DefineNameByLabel(wb, ws, "HLR_Seq", "連番")
+    Call DefineNameByLabel(wb, ws, "HLR_ID", "帳票ID")
+    Call DefineNameByLabel(wb, ws, "HLR_Type", "種別")
+    Call DefineNameByLabel(wb, ws, "HLR_Project", "案件ID/案件名")
+    Call DefineNameByLabel(wb, ws, "HLR_Sender", "送信者")
+    Call DefineNameByLabel(wb, ws, "HLR_To", "一次受け手")
+    Call DefineNameByLabel(wb, ws, "HLR_CC", "CC（二次受け手）")
+    Call DefineNameByLabel(wb, ws, "HLR_Urgency", "緊急度")
+    Call DefineNameByLabel(wb, ws, "HLR_ReplyDue", "期待する返答期限")
+    Call DefineNameByLabel(wb, ws, "HLR_Channel", "送信チャネル")
+    Call DefineNameByLabel(wb, ws, "HLR_Security", "機密区分")
+
+    ' 要約/結論
+    Call DefineNameByLabel(wb, ws, "HLR_Subject", "件名（40字以内）")
+    Call DefineNameByLabel(wb, ws, "HLR_Point", "今の結論（1文）")
+
+    ' Facts
+    Call DefineNameByLabel(wb, ws, "HLR_F1", "F1")
+    Call DefineNameByLabel(wb, ws, "HLR_F2", "F2")
+    Call DefineNameByLabel(wb, ws, "HLR_F3", "F3")
+    Call DefineNameByLabel(wb, ws, "HLR_F4", "F4（任意）")
+    Call DefineNameByLabel(wb, ws, "HLR_F5", "F5（任意）")
+    Call DefineNameByLabel(wb, ws, "HLR_F6", "F6（任意）")
+    Call DefineNameByLabel(wb, ws, "HLR_F7", "F7（任意）")
+
+    ' Hypothesis
+    Call DefineNameByLabel(wb, ws, "HLR_H1", "H1（根拠：F?）")
+    Call DefineNameByLabel(wb, ws, "HLR_H2", "H2（根拠：F?）")
+
+    ' MECE
+    Call DefineNameByLabel(wb, ws, "HLR_MECE_Status", "Status（状態）")
+    Call DefineNameByLabel(wb, ws, "HLR_MECE_Delta", "Delta（差分）")
+    Call DefineNameByLabel(wb, ws, "HLR_MECE_Impact", "Impact（影響）")
+    Call DefineNameByLabel(wb, ws, "HLR_MECE_Action", "Action（対応）")
+    Call DefineNameByLabel(wb, ws, "HLR_MECE_Dependency", "Dependency（依存）")
+    Call DefineNameByLabel(wb, ws, "HLR_MECE_Cause", "Cause（原因：根拠必須）")
+
+    ' 5W1H
+    Call DefineNameByLabel(wb, ws, "HLR_Who", "Who")
+    Call DefineNameByLabel(wb, ws, "HLR_What", "What")
+    Call DefineNameByLabel(wb, ws, "HLR_When", "When")
+    Call DefineNameByLabel(wb, ws, "HLR_Where", "Where")
+    Call DefineNameByLabel(wb, ws, "HLR_Why", "Why")
+    Call DefineNameByLabel(wb, ws, "HLR_How", "How")
+    Call DefineNameByLabel(wb, ws, "HLR_HowMuch", "How much（数値）")
+
+    ' 割り込み/EQ
+    Call DefineNameByLabel(wb, ws, "HLR_Interrupt", "割り込みの必要性")
+    Call DefineNameByLabel(wb, ws, "HLR_InterruptReason", "理由（選択式）")
+    Call DefineNameByLabel(wb, ws, "HLR_Tone", "温度（文体）")
+
+    ' Report
+    Call DefineNameByLabel(wb, ws, "HLR_Report_Status", "進捗ステータス")
+    Call DefineNameByLabel(wb, ws, "HLR_Report_Pct", "進捗率")
+    Call DefineNameByLabel(wb, ws, "HLR_Report_ETA", "完了見込み")
+    Call DefineNameByLabel(wb, ws, "HLR_Report_NextMe", "次アクション（自分）")
+    Call DefineNameByLabel(wb, ws, "HLR_Report_NextYou", "次アクション（相手）")
+
+    ' Notify
+    Call DefineNameByLabel(wb, ws, "HLR_Notify_Change", "変更点（1文）")
+    Call DefineNameByLabel(wb, ws, "HLR_Notify_Scope", "有効範囲（対象/期間/工程）")
+    Call DefineNameByLabel(wb, ws, "HLR_Notify_Action", "受け手に必要な対応（箇条書き）")
+    Call DefineNameByLabel(wb, ws, "HLR_Notify_Deadline", "締切")
+
+    ' Consult
+    Call DefineNameByLabel(wb, ws, "HLR_Consult_Issue", "論点（判断が必要な点）")
+    Call DefineNameByLabel(wb, ws, "HLR_Consult_Due", "判断期限")
+    Call DefineNameByLabel(wb, ws, "HLR_Consult_A", "選択肢A（概要）")
+    Call DefineNameByLabel(wb, ws, "HLR_Consult_A_Cost", "選択肢A（コスト：数値）")
+    Call DefineNameByLabel(wb, ws, "HLR_Consult_A_Risk", "選択肢A（リスク）")
+    Call DefineNameByLabel(wb, ws, "HLR_Consult_A_Dep", "選択肢A（依存）")
+    Call DefineNameByLabel(wb, ws, "HLR_Consult_B", "選択肢B（概要）")
+    Call DefineNameByLabel(wb, ws, "HLR_Consult_B_Cost", "選択肢B（コスト：数値）")
+    Call DefineNameByLabel(wb, ws, "HLR_Consult_B_Risk", "選択肢B（リスク）")
+    Call DefineNameByLabel(wb, ws, "HLR_Consult_B_Dep", "選択肢B（依存）")
+    Call DefineNameByLabel(wb, ws, "HLR_Consult_Rec", "推奨案")
+    Call DefineNameByLabel(wb, ws, "HLR_Consult_Reason", "推奨理由（1?2文、根拠はFacts参照）")
+    Call DefineNameByLabel(wb, ws, "HLR_Consult_Ask", "求める判断（形式）")
+
+    ' Evidence
+    Call DefineNameByLabel(wb, ws, "HLR_Evidence_Ref", "ログ/URL/ファイル名")
+    Call DefineNameByLabel(wb, ws, "HLR_Evidence_Steps", "再現手順（必要時：1?5行）")
+
+    ' 送信本文（本文セルはラベルで拾えないので「見出しの次行B列」を名前化）
+    Call DefineBodyCellName(wb, ws, "HLR_Body")
+End Sub
+
+Private Sub DefineNameByLabel(wb As Workbook, ws As Worksheet, nm As String, labelText As String)
+    Dim rr As Long
+    rr = GetRowByLabel(ws, labelText)
+    If rr < 1 Then Exit Sub
+
+    Call DefineWorkbookName(wb, nm, ws.Cells(rr, 2))
+End Sub
+
+Private Sub DefineBodyCellName(wb As Workbook, ws As Worksheet, nm As String)
+    Dim rr As Long
+    rr = GetRowByLabel(ws, "本文（自動生成）")
+    If rr < 1 Then Exit Sub
+    Call DefineWorkbookName(wb, nm, ws.Cells(rr, 2))
+End Sub
+
+Private Sub DefineWorkbookName(wb As Workbook, nm As String, targetCell As Range)
+    ' 既存があれば消して作り直す（壊れていても復旧できる）
+    On Error Resume Next
+    wb.Names(nm).Delete
+    On Error GoTo 0
+
+    ' RefersToはシート名を含むフル指定にする（移動に強い）
+    Dim refers As String
+    refers = "=" & targetCell.Worksheet.Name & "!" & targetCell.Address(True, True, xlA1)
+
+    ' シート名にハイフン等がある場合に備えてクォート
+    refers = "=" & "'" & targetCell.Worksheet.Name & "'" & "!" & targetCell.Address(True, True, xlA1)
+
+    ' Names.Add は位置引数で（互換性重視）
+    wb.Names.Add nm, refers
+End Sub
+
+' ==========================================
+' 数式（自動化）
+'  - 参照は全て Named Range を使う
+' ==========================================
+Sub ApplyHLRFormFormulas()
+    ' 自動セル（灰色）をセット
+    RangeByName("HLR_Date").Formula = "=TODAY()"
+    RangeByName("HLR_Date").NumberFormatLocal = "yyyy-mm-dd"
+
+    RangeByName("HLR_ID").Formula = "= ""HLR-"" & TEXT(HLR_Date,""yyyymmdd"") & ""-"" & TEXT(HLR_Seq,""000"")"
+    RangeByName("HLR_Tone").Value = "フラット（ログ報告）"
+
+    RangeByName("HLR_Subject").Formula = "= ""["" & HLR_Type & ""]["" & HLR_Project & ""] "" & LEFT(HLR_Point,26)"
+
+    ' 送信本文（TEXTJOIN禁止：& と CHAR(10)）
+    RangeByName("HLR_Body").Formula = BuildBodyFormulaByNames()
+End Sub
+
+Private Function BuildBodyFormulaByNames() As String
+    Dim f As String
+    f = "="
+    f = f & """帳票ID:"" & HLR_ID & CHAR(10) & "
+    f = f & """種別:"" & HLR_Type & CHAR(10) & "
+    f = f & """案件ID/案件名:"" & HLR_Project & CHAR(10) & "
+    f = f & """送信者:"" & HLR_Sender & CHAR(10) & "
+    f = f & """一次受け手:"" & HLR_To & CHAR(10) & "
+    f = f & """CC:"" & HLR_CC & CHAR(10) & "
+    f = f & """緊急度:"" & HLR_Urgency & CHAR(10) & "
+    f = f & """期待する返答期限:"" & HLR_ReplyDue & CHAR(10) & "
+    f = f & """送信チャネル:"" & HLR_Channel & CHAR(10) & "
+    f = f & """機密区分:"" & HLR_Security & CHAR(10) & CHAR(10) & "
+    f = f & """件名（40字以内）:"" & HLR_Subject & CHAR(10) & "
+    f = f & """結論（Point）:"" & CHAR(10) & HLR_Point & CHAR(10) & CHAR(10) & "
+    f = f & """【Facts（事実）】"" & CHAR(10) & "
+    f = f & """F1:"" & HLR_F1 & CHAR(10) & "
+    f = f & """F2:"" & HLR_F2 & CHAR(10) & "
+    f = f & """F3:"" & HLR_F3 & CHAR(10) & "
+    f = f & """F4:"" & HLR_F4 & CHAR(10) & "
+    f = f & """F5:"" & HLR_F5 & CHAR(10) & "
+    f = f & """F6:"" & HLR_F6 & CHAR(10) & "
+    f = f & """F7:"" & HLR_F7 & CHAR(10) & CHAR(10) & "
+    f = f & """【Hypothesis（解釈/仮説）】"" & CHAR(10) & "
+    f = f & """H1:"" & HLR_H1 & CHAR(10) & "
+    f = f & """H2:"" & HLR_H2 & CHAR(10) & CHAR(10) & "
+    f = f & """【MECE】"" & CHAR(10) & "
+    f = f & """Status:"" & HLR_MECE_Status & CHAR(10) & "
+    f = f & """Delta:"" & HLR_MECE_Delta & CHAR(10) & "
+    f = f & """Impact:"" & HLR_MECE_Impact & CHAR(10) & "
+    f = f & """Action:"" & HLR_MECE_Action & CHAR(10) & "
+    f = f & """Dependency:"" & HLR_MECE_Dependency & CHAR(10) & "
+    f = f & """Cause:"" & HLR_MECE_Cause & CHAR(10) & CHAR(10) & "
+    f = f & """【5W1H】"" & CHAR(10) & "
+    f = f & """Who:"" & HLR_Who & CHAR(10) & "
+    f = f & """What:"" & HLR_What & CHAR(10) & "
+    f = f & """When:"" & HLR_When & CHAR(10) & "
+    f = f & """Where:"" & HLR_Where & CHAR(10) & "
+    f = f & """Why:"" & HLR_Why & CHAR(10) & "
+    f = f & """How:"" & HLR_How & CHAR(10) & "
+    f = f & """How much:"" & HLR_HowMuch & CHAR(10) & CHAR(10) & "
+    f = f & """【割り込み判定/EQ】"" & CHAR(10) & "
+    f = f & """割り込み:"" & HLR_Interrupt & CHAR(10) & "
+    f = f & """理由:"" & HLR_InterruptReason & CHAR(10) & "
+    f = f & """温度:"" & HLR_Tone & CHAR(10) & CHAR(10) & "
+    f = f & """【報（Report）※該当時のみ】"" & CHAR(10) & "
+    f = f & """進捗ステータス:"" & HLR_Report_Status & CHAR(10) & "
+    f = f & """進捗率:"" & HLR_Report_Pct & CHAR(10) & "
+    f = f & """完了見込み:"" & HLR_Report_ETA & CHAR(10) & "
+    f = f & """次アクション（自分）:"" & CHAR(10) & HLR_Report_NextMe & CHAR(10) & "
+    f = f & """次アクション（相手）:"" & CHAR(10) & HLR_Report_NextYou & CHAR(10) & CHAR(10) & "
+    f = f & """【連（Notify）※該当時のみ】"" & CHAR(10) & "
+    f = f & """変更点:"" & CHAR(10) & HLR_Notify_Change & CHAR(10) & "
+    f = f & """有効範囲:"" & CHAR(10) & HLR_Notify_Scope & CHAR(10) & "
+    f = f & """受け手の対応:"" & CHAR(10) & HLR_Notify_Action & CHAR(10) & "
+    f = f & """締切:"" & HLR_Notify_Deadline & CHAR(10) & CHAR(10) & "
+    f = f & """【相（Consult）※該当時のみ、A/B必須】"" & CHAR(10) & "
+    f = f & """論点:"" & CHAR(10) & HLR_Consult_Issue & CHAR(10) & "
+    f = f & """判断期限:"" & HLR_Consult_Due & CHAR(10) & "
+    f = f & """選択肢A:"" & CHAR(10) & HLR_Consult_A & CHAR(10) & "
+    f = f & """  コスト:"" & HLR_Consult_A_Cost & CHAR(10) & "
+    f = f & """  リスク:"" & HLR_Consult_A_Risk & CHAR(10) & "
+    f = f & """  依存:"" & CHAR(10) & HLR_Consult_A_Dep & CHAR(10) & "
+    f = f & """選択肢B:"" & CHAR(10) & HLR_Consult_B & CHAR(10) & "
+    f = f & """  コスト:"" & HLR_Consult_B_Cost & CHAR(10) & "
+    f = f & """  リスク:"" & HLR_Consult_B_Risk & CHAR(10) & "
+    f = f & """  依存:"" & CHAR(10) & HLR_Consult_B_Dep & CHAR(10) & "
+    f = f & """推奨案:"" & HLR_Consult_Rec & CHAR(10) & "
+    f = f & """推奨理由:"" & CHAR(10) & HLR_Consult_Reason & CHAR(10) & "
+    f = f & """求める判断:"" & HLR_Consult_Ask & CHAR(10) & CHAR(10) & "
+    f = f & """【Evidence】"" & CHAR(10) & "
+    f = f & """ログ/URL/ファイル名:"" & CHAR(10) & HLR_Evidence_Ref & CHAR(10) & "
+    f = f & """再現手順:"" & CHAR(10) & HLR_Evidence_Steps"
+    BuildBodyFormulaByNames = f
+End Function
+
+' ==========================================
+' サンプル（ダミー）投入：名前定義で参照
+' ==========================================
+Sub FillSampleData()
+    RangeByName("HLR_Seq").Value = 1
+    RangeByName("HLR_Type").Value = "相"
+    RangeByName("HLR_Project").Value = "PRJ-142 / 障害調査（API遅延）"
+    RangeByName("HLR_Sender").Value = "山田"
+    RangeByName("HLR_To").Value = "佐藤"
+    RangeByName("HLR_CC").Value = "田中"
+    RangeByName("HLR_Urgency").Value = "High"
+    RangeByName("HLR_ReplyDue").Value = "2026-02-20 18:00"
+    RangeByName("HLR_Channel").Value = "Chat"
+    RangeByName("HLR_Security").Value = "社内限定"
+
+    RangeByName("HLR_Point").Value = "現状はAPI応答が遅延しており、暫定対応の可否判断が必要。期限は本日18:00、判断が必要。"
+
+    RangeByName("HLR_F1").Value = "監視でAPI応答P95が 3.2s（通常 0.8s）に上昇（02/20 09:10?）。"
+    RangeByName("HLR_F2").Value = "同時間帯にDBのCPU使用率が 85% まで上昇。"
+    RangeByName("HLR_F3").Value = "直近リリースは 02/19 21:00（API側のみ、DB変更なし）。"
+    RangeByName("HLR_F4").Value = "顧客から遅延問い合わせが2件（サポートチケット）。"
+    RangeByName("HLR_F5").Value = "再起動で一時的にP95が 1.4s まで改善、30分後に再悪化。"
+    RangeByName("HLR_F6").Value = "ログにタイムアウト警告が増加（HLR-Detail参照）。"
+    RangeByName("HLR_F7").Value = "該当環境：本番（prod）リージョンap-northeast-1。"
+
+    RangeByName("HLR_H1").Value = "リリースにより特定クエリ頻度が増え、DBがボトルネック化している可能性（根拠：F1,F2,F3）。"
+    RangeByName("HLR_H2").Value = "暫定的に機能フラグをOFFにすると負荷が下がる可能性（根拠：F3,F5）。"
+
+    RangeByName("HLR_MECE_Status").Value = "遅延発生中（P95 3.2s）。"
+    RangeByName("HLR_MECE_Delta").Value = "通常0.8s → 3.2s に悪化。"
+    RangeByName("HLR_MECE_Impact").Value = "顧客影響：遅延問い合わせ2件、継続すると解約リスク。"
+    RangeByName("HLR_MECE_Action").Value = "暫定対応の可否判断、恒久対応の調査開始。"
+    RangeByName("HLR_MECE_Dependency").Value = "DBチーム協力、リリース担当の切り戻し可否。"
+    RangeByName("HLR_MECE_Cause").Value = "原因仮説：DB負荷増（根拠：F2,F5）。"
+
+    RangeByName("HLR_Who").Value = "API担当（山田）/ DB担当（佐藤）"
+    RangeByName("HLR_What").Value = "本番API遅延の暫定対応と恒久対応方針"
+    RangeByName("HLR_When").Value = "本日 18:00 までに暫定対応の判断"
+    RangeByName("HLR_Where").Value = "本番 prod / ap-northeast-1"
+    RangeByName("HLR_Why").Value = "顧客影響を止めるため"
+    RangeByName("HLR_How").Value = "機能フラグOFF or ロールバック、並行でクエリ特定"
+    RangeByName("HLR_HowMuch").Value = "P95: 0.8s→3.2s、問い合わせ2件"
+
+    RangeByName("HLR_Interrupt").Value = "要"
+    RangeByName("HLR_InterruptReason").Value = "顧客影響"
+
+    RangeByName("HLR_Consult_Issue").Value = "暫定対応として『機能フラグOFF』か『ロールバック』のどちらで進めるか。"
+    RangeByName("HLR_Consult_Due").Value = "2026-02-20 18:00"
+    RangeByName("HLR_Consult_A").Value = "機能フラグOFFで高負荷処理を停止し、影響を最小化しつつ調査継続。"
+    RangeByName("HLR_Consult_A_Cost").Value = 30
+    RangeByName("HLR_Consult_A_Risk").Value = "Med"
+    RangeByName("HLR_Consult_A_Dep").Value = "フラグ管理権限、影響範囲の告知"
+    RangeByName("HLR_Consult_B").Value = "ロールバックで直近変更を戻し、遅延を早期解消する。"
+    RangeByName("HLR_Consult_B_Cost").Value = 60
+    RangeByName("HLR_Consult_B_Risk").Value = "High"
+    RangeByName("HLR_Consult_B_Dep").Value = "リリース担当の手順、再デプロイ時間"
+    RangeByName("HLR_Consult_Rec").Value = "A"
+    RangeByName("HLR_Consult_Reason").Value = "F2/F5よりDB負荷起点が濃厚で、まず負荷源を止めて顧客影響を抑えるのが安全。"
+    RangeByName("HLR_Consult_Ask").Value = "AでGO"
+
+    RangeByName("HLR_Evidence_Ref").Value = "監視ダッシュボード/サポチケID/ログ（詳細はHLR-Detailへ）"
+    RangeByName("HLR_Evidence_Steps").Value = "1) 09:10以降に遅延 2) APIリクエスト増 3) DB負荷増 4) 再起動で一時改善"
+
+    Dim wd As Worksheet
+    On Error Resume Next
+    Set wd = ThisWorkbook.Worksheets("HLR-Detail")
+    On Error GoTo 0
+    If Not wd Is Nothing Then
+        wd.Range("B5").Value = RangeByName("HLR_ID").Value
+        wd.Range("A13").Value = "- app.log（timeout warning）"
+        wd.Range("A14").Value = "- db.log（slow query）"
+    End If
+End Sub
+
+' ==========================================
+' Named Range 参照ユーティリティ
+' ==========================================
+Private Function RangeByName(nm As String) As Range
+    On Error GoTo ErrHandler
+    Set RangeByName = ThisWorkbook.Names(nm).RefersToRange
+    Exit Function
+ErrHandler:
+    Set RangeByName = Nothing
+End Function
+
+' ==========================================
+' 整形
+' ==========================================
+Sub ApplyHLRFormatting(ws As Worksheet)
+    Dim lastRow As Long
+    Dim rng As Range
+    Dim i As Long
+    Dim s As String
+
+    lastRow = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row
+    If lastRow < 1 Then Exit Sub
+
+    Set rng = ws.Range(ws.Cells(1, 1), ws.Cells(lastRow, 4))
+    With rng.Borders
+        .LineStyle = xlContinuous
+        .Weight = xlThin
+        .ColorIndex = xlAutomatic
+    End With
+
+    ws.Range(ws.Cells(1, 2), ws.Cells(lastRow, 2)).Interior.Color = RGB(255, 255, 210)
+    ws.Range(ws.Cells(1, 4), ws.Cells(lastRow, 4)).Interior.Color = RGB(245, 245, 245)
+    ws.Columns(2).WrapText = True
+
+    For i = 1 To lastRow
+        s = CStr(ws.Cells(i, 1).Value)
+        If Left(s, 2) = "0)" Or Left(s, 2) = "1)" Or Left(s, 2) = "2)" Or Left(s, 2) = "3)" Or Left(s, 2) = "4)" Or Left(s, 2) = "5)" Or Left(s, 2) = "6)" Or Left(s, 2) = "7)" Or Left(s, 2) = "8)" Or Left(s, 2) = "9)" Then
+            ws.Range(ws.Cells(i, 1), ws.Cells(i, 4)).Interior.Color = RGB(235, 235, 235)
+            ws.Cells(i, 1).Font.Bold = True
+        End If
+    Next i
+
+    With ws.PageSetup
+        .Orientation = xlPortrait
+        .Zoom = False
+        .FitToPagesWide = 1
+        .FitToPagesTall = False
+        .LeftMargin = Application.InchesToPoints(0.5)
+        .RightMargin = Application.InchesToPoints(0.5)
+        .TopMargin = Application.InchesToPoints(0.5)
+        .BottomMargin = Application.InchesToPoints(0.5)
+    End With
+
+    ws.Activate
+    ws.Range("A6").Select
+    ActiveWindow.FreezePanes = True
+End Sub
+
+Sub ApplyHLRDetailFormatting(ws As Worksheet)
+    Dim lastRow As Long
+    Dim rng As Range
+
+    lastRow = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row
+    If lastRow < 1 Then Exit Sub
+
+    Set rng = ws.Range(ws.Cells(1, 1), ws.Cells(lastRow, 2))
+    With rng.Borders
+        .LineStyle = xlContinuous
+        .Weight = xlThin
+        .ColorIndex = xlAutomatic
+    End With
+
+    ws.Columns(2).WrapText = True
+    ws.Range("A1:B1").Interior.Color = RGB(235, 235, 235)
+
+    With ws.PageSetup
+        .Orientation = xlPortrait
+        .Zoom = False
+        .FitToPagesWide = 1
+        .FitToPagesTall = False
+        .LeftMargin = Application.InchesToPoints(0.5)
+        .RightMargin = Application.InchesToPoints(0.5)
+        .TopMargin = Application.InchesToPoints(0.5)
+        .BottomMargin = Application.InchesToPoints(0.5)
+    End With
+End Sub
+
+' ==========================================
+' UI部品
+' ==========================================
+Private Sub PutSectionTitle(ws As Worksheet, ByRef r As Long, titleText As String)
+    ws.Cells(r, 1).Value = titleText
+    ws.Cells(r, 1).Font.Bold = True
+    ws.Range(ws.Cells(r, 1), ws.Cells(r, 4)).Interior.Color = RGB(235, 235, 235)
+    r = r + 1
+End Sub
+
+Private Sub PutInputRow(ws As Worksheet, ByVal r As Long, labelText As String, helpText As String, isReadOnly As Boolean)
+    ws.Cells(r, 1).Value = labelText
+    ws.Cells(r, 1).Font.Bold = True
+
+    ws.Cells(r, 2).Value = ""
+    ws.Cells(r, 2).WrapText = True
+
+    ws.Cells(r, 4).Value = helpText
+    ws.Cells(r, 4).Font.Color = RGB(120, 120, 120)
+
+    If isReadOnly Then
+        ws.Cells(r, 2).Locked = True
+        ws.Cells(r, 2).Interior.Color = RGB(235, 235, 235)
+    Else
+        ws.Cells(r, 2).Locked = False
+    End If
+End Sub
+
+Private Sub PutInputMulti(ws As Worksheet, ByRef r As Long, labelText As String, helpText As String, heightLines As Long)
+    ws.Cells(r, 1).Value = labelText
+    ws.Cells(r, 1).Font.Bold = True
+
+    ws.Cells(r, 2).Value = ""
+    ws.Cells(r, 2).WrapText = True
+    ws.Rows(r).RowHeight = 15 * heightLines
+
+    ws.Cells(r, 4).Value = helpText
+    ws.Cells(r, 4).Font.Color = RGB(120, 120, 120)
+
+    r = r + 1
+End Sub
+
+' ==========================================
+' 入力制約（プルダウン）
+' ==========================================
+Private Sub AddListValidation(targetCell As Range, listCsv As String)
+    On Error Resume Next
+    targetCell.Validation.Delete
+    On Error GoTo 0
+
+    targetCell.Validation.Add xlValidateList, xlValidAlertStop, xlBetween, listCsv
+    targetCell.Validation.IgnoreBlank = True
+    targetCell.Validation.InCellDropdown = True
+End Sub
+
+' ==========================================
+' ラベル名から行番号を取得
+' ==========================================
+Private Function GetRowByLabel(ws As Worksheet, labelText As String) As Long
+    Dim f As Range
+    Set f = Nothing
+
+    On Error Resume Next
+    Set f = ws.Columns(1).Find(labelText, ws.Cells(1, 1), xlValues, xlWhole, xlByRows, xlNext, False)
+    On Error GoTo 0
+
+    If f Is Nothing Then
+        GetRowByLabel = 0
+    Else
+        GetRowByLabel = f.Row
+    End If
+End Function
+
+' ==========================================
+' 共通ユーティリティ（必須）
+' ==========================================
+Function ForceCreateSheet(wb As Workbook, sheetName As String) As Worksheet
+    Dim ws As Worksheet
+    On Error Resume Next
+    Set ws = wb.Worksheets(sheetName)
+    If Not ws Is Nothing Then ws.Delete
+    On Error GoTo 0
+
+    Set ws = wb.Worksheets.Add(After:=wb.Worksheets(wb.Worksheets.Count))
+    ws.Name = sheetName
+    Set ForceCreateSheet = ws
+End Function
